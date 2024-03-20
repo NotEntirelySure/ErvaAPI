@@ -1,0 +1,10 @@
+type Mutation {
+  deleteUser(userId: Int!): deleteUserResult
+  addUserPermissions(addValues: [addPermission]): [addPermissionResult]
+  deleteUserPermissions(deleteValues: [deletePermission]): [deletePermissionResult]
+  updateUser(userData: UpdatedUserData): updateUserResult
+  modOrganization(orgData: ModifyOrg): ModResult
+  modFacility(facilityData: ModFacility): ModResult
+  modImage(imageData: ImageData): ModResult
+  modBlueprint(blueprintData: BlueprintData): ModResult 
+}

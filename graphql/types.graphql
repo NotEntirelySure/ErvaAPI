@@ -1,0 +1,207 @@
+scalar DateTime
+
+# -- Types for verifying JWTs --
+type jwt {
+  token:String!  
+}
+
+type AdminAuth {
+  isAuth:Boolean!
+}
+
+#------------------------------
+
+#-- Types for QR code functions --
+type qrCode {
+  qrcode: String
+  secret: qrSecret
+}
+type qrSecret {
+  ascii: String
+  hex: String
+  base32: String
+  otpauth_url: String
+}
+#----------------------------
+
+#-- Types for users --
+type User {
+  id: ID
+  firstName: String
+  lastName: String
+  email: String
+  createdAt: DateTime
+  enabled: Boolean
+  verified: Boolean
+  role: Role
+  accountType: AccountType
+}
+type deleteUserResult {
+  success: Boolean!
+  errorCode: String
+  errorMessage: String
+}
+type updateUserResult {
+  success: Boolean!
+  userId: Int!
+  errorCode: String
+  errorMessage: String
+}
+input UpdatedUserData {
+  id: ID
+  firstName: String
+  lastName: String
+  email: String
+  createdAt: DateTime
+  enabled: Boolean
+  verified: Boolean
+  role: UpdateUserRole
+  accountType: UpdateUserAccountType
+}
+#---------------------------
+
+#-- Types for roles --
+type Role {
+  id: ID!
+  name: String!
+}
+input UpdateUserRole {
+  id: ID!
+  name: String!
+}
+#----------------------------
+
+#-- Type for user account types --
+type AccountType {
+  id: ID!
+  name: String!
+}
+input UpdateUserAccountType {
+  id: ID!
+  name: String!
+}
+#----------------------------
+
+#-- Types for facilities --
+type Facility {
+  id: ID!
+  name: String!
+  address: String!
+  city: String!
+  state: String!
+  zip: String!
+  organization:Int
+  lat: Float
+  long: Float
+  image: String
+  code: String
+}
+input ModFacility {
+  action:String
+  id: ID
+  name: String!
+  address: String
+  city: String
+  state: String
+  zip: String
+  organization:Int
+  lat: Float
+  long: Float
+  image: String
+  code: String
+}
+#-----------------------------
+
+#-- type for database images --
+type Image {
+  name: String
+  data: String
+  success: Boolean
+  message:String
+}
+type ImageDetail {
+  name: String
+  createdAt: DateTime
+  size: String
+}
+input ImageData {
+  action: String!
+  type: String
+  name: String
+  data: String
+}
+#-----------------------------
+
+#-- types to for user permissions --
+type UserPermission {
+  permissionId: ID
+  facilityId: ID
+  facilityName: String
+  facilityCity: String
+}
+input addPermission {
+  userId: Int!
+  facilityId: Int!
+}
+input deletePermission {
+  permissionId: Int
+}
+type addPermissionResult {
+  success: Boolean!
+  userId: Int!
+  errorCode: String
+  errorMessage: String
+}
+type deletePermissionResult {
+  success: Boolean!
+  permissionId: Int!
+  errorCode: String
+  errorMessage: String
+}
+#------------------------------
+
+#-- Types for organizations --
+type Organization {
+  id: ID
+  image:String
+  name:String
+  address:String
+  city:String
+  state:String
+  zip:String
+}
+
+input ModifyOrg {
+  action:String!
+  id:ID!
+  image:String
+  name:String
+  address:String
+  city:String
+  state:String
+  zip:String
+}
+#------------------------------
+
+# -- Types for blueprints --
+type Blueprint {
+  id:ID
+  facilityId:Int
+  name:String
+  image:String
+}
+input BlueprintData {
+  action:String!
+  id:ID
+  name:String!
+  facility:Int!
+  image:String
+}
+
+# -- Type for various modifications --
+type ModResult {
+  success: Boolean!
+  errorCode: String
+  errorMessage: String
+}
+#--------------------------
