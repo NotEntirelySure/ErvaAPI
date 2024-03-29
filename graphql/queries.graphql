@@ -1,14 +1,7 @@
 type Query {
-  verifyAdmin:AdminAuth
-  getQr: qrCode
-  getUsers: [User]
-  getRoles: [Role]
-  getImage(type: String, name: String): Image
-  getImageList(type: String): [ImageDetail]
-  getAccountTypes: [AccountType]
-  getFacilities: [Facility]
-  getBlueprints: [Blueprint]
-  getUserPermissions(userId: Int):[UserPermission]
-  sendVerificationEmail(address: String):Boolean
-  getOrganizations: [Organization]
+  verifyAccess:UserAuth
+  getUserInfo(jwt:String):UserInfo
+  getOrganizations(jwt:String):[Organization]
+  getFacilities(jwt:String, organizationId:Int):[Facility]
+  getBlueprints(jwt:String, facilityId:Int):[Blueprint]
 }

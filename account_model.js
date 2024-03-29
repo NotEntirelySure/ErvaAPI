@@ -14,27 +14,6 @@ const pool = new Pool({
   port: process.env.API_BASE_PORT_NUMBER,
 });
 
-function adminLogin(credentials) {
-  return new Promise((resolve, reject) => {
-    
-    // resolve({
-    //   success:false,
-    //   errorCode:401,
-    //   errorMessage:"Invalid username, password, or OTP"
-    // });
-
-    const payload = {
-      "id":1,
-      "type":3
-    }
-    const token = jwt.sign(payload, process.env.JWT_SECRET_KEY, {expiresIn: "1d"});
-    resolve({
-      success:true,
-      jwt:token
-    });
-  })
-};
-
 function login(loginValues) {
   return new Promise(async(resolve, reject) => { 
     try {
@@ -42,8 +21,11 @@ function login(loginValues) {
         SELECT convert_from(decrypt(users_otp_key::bytea, '${process.env.DATABASE_PASSWORD_ENCRYPTION_KEY}', 'aes'), 'SQL_ASCII')
         FROM users
         WHERE users_email=$1;`;
-      const secretRequest = await pool.query(secretQuery,[loginValues.user.toLowerCase()]);
-      if (secretRequest.rows.length === 0) {resolve({"error":401,"message":"authentication error"})}
+      const secretRequest = await pool.query(secretQuery,[loginValues.username.toLowerCase()]);
+      if (secretRequest.rows.length === 0) resolve({
+        success:false,
+        errorCode:401,
+        errorMessage:"Your username, password, or one-time password is incorrect."})
       if (secretRequest.rows.length > 0) {
         const isVerified = speakeasy.totp.verify({
           secret:secretRequest.rows[0].convert_from,
@@ -65,37 +47,62 @@ function login(loginValues) {
               INNER JOIN accounttypes AS at
               ON users.users_fk_type=at.at_id
               WHERE users_email=$1 AND users_password=crypt($2, users_password);`;
-            const userValues = [loginValues.user,loginValues.pass]
-            const userInfo = await pool.query(userQuery,userValues);
+            const userInfo = await pool.query(userQuery,[loginValues.username, loginValues.password]);
             if (userInfo.rowCount > 0) {
-              if (!userInfo.rows[0].users_verified) resolve({"error":601,"message":"account not verified"})
+              if (!userInfo.rows[0].users_verified) resolve({
+                success:false,
+                errorCode:601,
+                errorMessage:"account not verified"
+              });
+              if (!userInfo.rows[0].users_enabled) resolve({
+                success:false,
+                errorCode:402,
+                errorMessage:"account disabled"
+              });
               if (userInfo.rows[0].users_enabled && userInfo.rows[0].users_verified) {
                 const payload = {
                   "id":userInfo.rows[0].users_id,
                   "type":userInfo.rows[0].users_fk_type
-                }
+                };
                 const token = jwt.sign(payload, process.env.JWT_SECRET_KEY, {expiresIn: "1d"});
-                resolve({"jwt":token});
-              }
-              if (!userInfo.rows[0].users_enabled && userInfo.rows[0].users_verified) resolve({"error":402,"message":"account disabled"})
-            }
-            if (userInfo.rowCount === 0) resolve({"error":401,"message":"authentication error"})
+                resolve({success:true, jwt:token});
+              };
+            };
+            if (userInfo.rowCount === 0) resolve({
+              success:false,
+              errorCode:401,
+              errorMessage:"Your username, password, or one-time password is incorrect."});
           }
-          catch (err) {resolve({"error":401,"message":"authentication error"})}
+          catch (err) {
+            resolve({
+              success:false,
+              errorCode:401,
+              errorMessage:"authentication error"
+            });
+          };
         }
-        if (!isVerified) resolve({"error":401,"message":"otp authentication error"})
-      }
+        if (!isVerified) resolve({
+          success:false,
+          errorCode:401,
+          errorMessage:"Your username, password, or one-time password is incorrect."})
+      };
     }
-    catch (err) {resolve({"error":401,"message":"authentication error 66"})}
-   }) 
-}
+    catch (err) {
+      resolve({
+        success:false,
+        errorCode:401,
+        errorMessage:"authentication error"
+      });
+    };
+  }); 
+};
 
 function register(registrationValues) {
   return new Promise(async(resolve, reject) => {
     const isVerified = speakeasy.totp.verify({
       secret: registrationValues.otpsecret,
       encoding: 'base32',
-      token: registrationValues.otp
+      token:parseInt(registrationValues.otp)
     });
     if (!isVerified) {resolve({"code":601,"message":"invalid OTP code"})}
     if (isVerified) {
@@ -149,11 +156,15 @@ function register(registrationValues) {
 
 function generateQr() {
   const secret = speakeasy.generateSecret();
+  console.log(secret);
   const otpAuthUrl = speakeasy.otpauthURL({ secret: secret.ascii, label: 'E.R.V.A.', algorithm: 'sha512' });
   return new Promise((resolve, reject) => {
     QRCode.toDataURL(otpAuthUrl, (err, data_url) => {
       if(err) reject(err)
-      resolve({"qrcode":data_url,"secret":secret});
+      resolve({
+        qrcode:data_url,
+        secret:secret
+      });
     });
   });
 };
@@ -186,39 +197,69 @@ function verifyAccount(token) {
 };
 
 function forgotPassword(email) {
-  return new Promise(async(resolve) => {
-    const userExists = await pool.query(`SELECT(EXISTS(SELECT FROM users WHERE users_email=$1))`,[email.toLowerCase()]);
-    if (!userExists.rows[0].exists) resolve();
-    if (userExists.rows[0].exists) {
-      //sign JWT with user's encrypted password to create one time use JWT. If the password is reset, the encrypted password value will be different, and the JWT verify will fail.
-      const userValues = await pool.query('SELECT users_id, users_email, users_password FROM users WHERE users_email=$1',[email.toLowerCase()])
-      const payload = {
-        userId:userValues.rows[0].users_id,
-        userEmail:userValues.rows[0].users_email
-      }
-      const resetToken = jwt.sign(payload, userValues.rows[0].users_password, {expiresIn: "1h"});
-      email_model.sendForgotEmail(email.toLowerCase(),resetToken)
-      resolve();
+  return new Promise(resolve => {
+    const response = {
+      success: true,
+      message: 'Your password reset request was successfully submitted. If the account exists, an email will be sent to the provided email address with a link to reset your password.'
     }
-  })
+    try {
+      pool.query('SELECT * FROM forgot_password($1)',
+        [email.toLowerCase()],
+        (error, results) => {
+          if (results.rowCount > 0) {
+            const payload = {
+              id:results.rows[0].id,
+              email:results.rows[0].email
+            }
+            const resetToken = jwt.sign(payload, results.rows[0].password, {expiresIn: "1h"});
+            email_model.sendForgotEmail(email.toLowerCase(),resetToken)
+            resolve(response);
+          };
+        }
+      );
+      resolve(response);
+    }
+    catch (error){resolve({success:false, message:"An error occured when processing your requesnt. Please try again later. If the problem persists, contact the system administrator."})}
+  });
 }
 
-function resetPassword(resetToken, newPassword) {
+function resetPassword(data) {
   return new Promise(async(resolve) => {
-    const userId = jwt.decode(resetToken).userId
-    if (userId === null) resolve({"code":498,"error":"The server was presented with an invalid token"})
-    if (userId !== null) {
-      const jwtSignature = await pool.query('SELECT users_password FROM users WHERE users_id=$1',[userId]);
-      jwt.verify(resetToken, jwtSignature.rows[0].users_password, (err, result) => {
-        if (err) resolve({"code":498,"error":"The server was presented with an invalid token"})
-        if (result) {
-          pool.query("UPDATE users SET users_password=crypt($1, gen_salt('bf'))",[newPassword],(error,result) => {
-            if (error) resolve({"code":500,"message":"an error occured while attemting to change password."})
-            resolve({"code":200})
-          });
-        };
-      });
-    };
+    try {
+      if (data.newPassword !== data.confirmPassword) resolve({success:false, message:"The provided passwords do not match"});
+      const userId = jwt.decode(data.resetToken).id;
+      if (!userId) resolve({success:false, message:"The server was presented with an invalid token"})
+      if (userId) {
+        const jwtSignature = await pool.query('SELECT users_password FROM users WHERE users_id=$1',[userId]);
+        jwt.verify(data.resetToken, jwtSignature.rows[0].users_password, (err, result) => {
+          if (err) {
+            switch(err.name) {
+              case "TokenExpiredError": 
+                resolve({success:false, message:"The password reset token has expired."});
+                break;
+              case "JsonWebTokenError":
+                resolve({success:false, message:"The server was presented with an invalid token"});
+                break;
+              default: resolve({success:false, message:"The server was presented with an invalid token"});
+            };
+          };
+          if (result) {
+            pool.query(
+              `UPDATE users
+              SET users_password=crypt($1, gen_salt('bf'))
+              WHERE users_id=$2;`,
+              [data.newPassword, userId],
+              (error,result) => {
+                if (error) resolve({success:false,message:"an error occured while attemting to change your password."})
+                resolve({success:true, message:"Your password was successfully changed."})
+            });
+          };
+        });
+      };
+    }
+    catch (error) {
+      console.log(error);
+      resolve({success:false, message:"An unexpected error occured."})};
   });
 };
 
@@ -237,7 +278,7 @@ function setApiKey(userId, apiKey) {
 
 function getApiKey(token) {
   return new Promise(async(resolve, reject) => {
-    const isVerified = await verifyJwt_model.verifyJwtInternal(token);
+    const isVerified = await verifyJwt_model._verifyJwt(token);
     if (isVerified.verified === false) resolve(isVerified.error);
     if (isVerified.verified === true) {
       try { 
@@ -258,7 +299,6 @@ function getApiKey(token) {
 };
 
 module.exports = {
-  adminLogin,
   generateQr,
   login,
   register,

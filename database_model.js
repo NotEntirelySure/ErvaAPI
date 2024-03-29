@@ -2,6 +2,7 @@
 require('dotenv').config();
 const images_model = require("./images_model");
 const jwt = require("jsonwebtoken");
+const { _verifyJwt } = require('./verifyJwt_model');
 const Pool = require('pg').Pool
 const pool = new Pool({
   user: process.env.API_BASE_USER_ACCOUNT,
@@ -11,14 +12,47 @@ const pool = new Pool({
   port: process.env.API_BASE_PORT_NUMBER,
 });
 
-function getOffices(token) {
-  return new Promise((resolve, reject) => {
-    if(!token) {reject({"errorCode":401, "error":"No JWT provided"})}
+function getUserInfo(token) {
+  return new Promise(async (resolve, reject) => {
+    if(!token) resolve([{id:-1, name:''}])
     if (token) {
-      jwt.verify(token, process.env.JWT_SECRET_KEY, async(err, result) => {
-        if(err) reject({"errorCode":401, "error":err});
-        if(result) {
-          const userOffices = await pool.query(`
+      const isAuth = await _verifyJwt(token);
+      if (!isAuth.verified) resolve([{id:-1, name:''}]);
+      if (isAuth.verified) {
+        pool.query(`
+          SELECT 
+            users_id,
+            users_first_name,
+            users_last_name,
+            users_email,
+            users_fk_type
+          FROM users
+          WHERE users_id=$1
+        `,
+        [isAuth.result.id],
+        (error, results) => {
+          if (error) resolve([{id:-1, name:''}])
+          resolve({
+            id:results.rows[0].users_id,
+            firstName:results.rows[0].users_first_name,
+            lastName:results.rows[0].users_last_name,
+            email:results.rows[0].users_email,
+            type:results.rows[0].users_fk_type
+          });
+        });
+      };
+    };
+  });
+};
+
+function getOrganizations(token) {
+  return new Promise(async (resolve, reject) => {
+    if(!token) resolve([{id:-1, name:'no token'}])
+    if (token) {
+      const isAuth = await _verifyJwt(token);
+      if (!isAuth.verified) resolve([{id:-1, name:'not verified'}]);
+      if (isAuth.verified) {
+        pool.query(`
           SELECT DISTINCT
             o.offices_id,
             o.offices_name,
@@ -28,120 +62,117 @@ function getOffices(token) {
             o.offices_zip,
             o.offices_lat,
             o.offices_long
-          FROM facilitypermissions as fp
-          INNER JOIN facilities AS f ON f.facilities_id=fp.fp_fk_facility
-          INNER JOIN offices AS o ON o.offices_id=f.facilities_fk_offices
-          WHERE fp.fp_fk_user=${result.id};
-          `);
-          let officesArray = []
-          if (userOffices.rows.length > 0) {
-            for (let i=0;i<userOffices.rows.length;i++) {
-              officesArray.push({
-                "id":userOffices.rows[i].offices_id,
-                "name":userOffices.rows[i].offices_name,
-                "address":userOffices.rows[i].offices_address,
-                "city":userOffices.rows[i].offices_city,
-                "state":userOffices.rows[i].offices_state,
-                "zip":userOffices.rows[i].offices_zip,
-                "lat":userOffices.rows[i].offices_lat,
-                "long":userOffices.rows[i].offices_long
-              });
-            };
-          };
-          resolve(officesArray);
-        };
-      });
+            FROM facilitypermissions as fp
+            INNER JOIN facilities AS f ON f.facilities_id=fp.fp_fk_facility
+            INNER JOIN offices AS o ON o.offices_id=f.facilities_fk_offices
+            WHERE fp.fp_fk_user=$1;
+        `,
+        [isAuth.result.id],
+        (error, results) => {
+          if (error) resolve([{id:-1, name:'error'}]);
+          const organizations = results.rows.map(org => (
+            {
+              id:org.offices_id,
+              name:org.offices_name,
+              address:org.offices_address,
+              city:org.offices_city,
+              state:org.offices_state,
+              zip:org.offices_zip
+            }
+          ));
+          resolve(organizations);
+        }
+        );
+      };
     };
   });
 };
 
-function getFacilitiesByUser(token, officeId) {
-  return new Promise((resolve, reject) => {
+function getFacilitiesByUser(token, organizationsId) {
+  return new Promise(async (resolve, reject) => {
     if(!token) reject({"errorCode":401, "error":"No JWT provided"});
     if (token) {
-      jwt.verify(token, process.env.JWT_SECRET_KEY, async(err, result) => {
-        if(err) {reject({"errorCode":401, "error":err});}
-        if(result) {
-          const userFacilities = await pool.query(`
-            SELECT DISTINCT
-              f.facilities_id,
-              f.facilities_name,
-              f.facilities_address,
-              f.facilities_city,
-              f.facilities_state,
-              f.facilities_zip,
-              f.facilities_lat,
-              f.facilities_long,
-              f.facilities_image,
-              f.facilities_code
-            FROM facilities AS f
-            INNER JOIN facilitypermissions AS fp ON fp.fp_fk_facility=f.facilities_id
-            WHERE fp.fp_fk_user=${result.id}
-            AND f.facilities_fk_offices=${officeId};
-          `);
-          let facilitiesArray = [];
-          if (userFacilities.rows.length > 0) {
-            for (let i=0;i<userFacilities.rows.length;i++) {
-              const image = images_model._getImage("facilities", userFacilities.rows[i].facilities_image)
-              facilitiesArray.push({
-                "facilityId":userFacilities.rows[i].facilities_id,
-                "name":userFacilities.rows[i].facilities_name,
-                "address":userFacilities.rows[i].facilities_address,
-                "city":userFacilities.rows[i].facilities_city,
-                "state":userFacilities.rows[i].facilities_state,
-                "zip":userFacilities.rows[i].facilities_zip,
-                "lat":userFacilities.rows[i].facilities_lat,
-                "long":userFacilities.rows[i].facilities_long,
+      const isAuth = await _verifyJwt(token);
+      if(!isAuth.verified) {reject({"errorCode":401, "error":err});}
+      if(isAuth.verified) {
+        pool.query(`
+          SELECT DISTINCT
+            f.facilities_id,
+            f.facilities_name,
+            f.facilities_address,
+            f.facilities_city,
+            f.facilities_state,
+            f.facilities_zip,
+            f.facilities_lat,
+            f.facilities_long,
+            f.facilities_image,
+            f.facilities_code
+          FROM facilities AS f
+          INNER JOIN facilitypermissions AS fp ON fp.fp_fk_facility=f.facilities_id
+          WHERE fp.fp_fk_user=$1
+          AND f.facilities_fk_offices=$2;
+        `,
+        [isAuth.result.id, organizationsId],
+        (error, results) => {
+          if(error) reject({error:500, message:error});
+          const facilities = results.rows.map(facility => {
+            const image = images_model.getImage("facility", facility.facilities_image);
+            return (
+              {
+                "id":facility.facilities_id,
+                "name":facility.facilities_name,
+                "address":facility.facilities_address,
+                "city":facility.facilities_city,
+                "state":facility.facilities_state,
+                "zip":facility.facilities_zip,
+                "lat":facility.facilities_lat,
+                "long":facility.facilities_long,
                 "image":image,
-                "code":userFacilities.rows[i].facilities_code
-              })
-            }
-          }
-          resolve(facilitiesArray);
-        };
-      });
+                "code":facility.facilities_code
+              }
+            );
+          });
+          resolve(facilities);
+        });
+      };
     };
   });
 };
 
-function getBlueprintsByUser(token, facilityId) {
-  
-  return new Promise((resolve, reject) => {
-    if(!token) {reject({"errorCode":401, "error":"No JWT provided"})}
+function getBlueprintsByUser(token, facilityId) {  
+  return new Promise(async (resolve, reject) => {
+    if(!token) reject({"errorCode":401, "error":"No JWT provided"});
     if (token) {
-      jwt.verify(token, process.env.JWT_SECRET_KEY, async(err, result) => {
-        if (err) reject({"errorCode":401, "error":err});
-        if (result) {
-          const userBlueprints = await pool.query(`
-            SELECT
-              blueprint_id,
-              blueprint_fk_facility_id,
-              blueprint_name,
-              blueprint_image
-            FROM blueprints
-            INNER JOIN facilitypermissions AS fp ON fp.fp_fk_facility=blueprints.blueprint_fk_facility_id
-            WHERE fp.fp_fk_user=${result.id}
-            AND blueprint_fk_facility_id=${facilityId};
-          `);
-          const blueprintsArray = [];
-          if (userBlueprints.rows.length > 0) {
-            for (let i=0;i<userBlueprints.rows.length;i++) {
-              const image = images_model._getImage("blueprints", userBlueprints.rows[i].blueprint_image)
-              blueprintsArray.push({
-                "id":userBlueprints.rows[i].blueprint_id,
-                "name":userBlueprints.rows[i].blueprint_name,
-                "code":userBlueprints.rows[i].blueprint_code,
-                "image":image
-              })
-            }
+      const isAuth = await _verifyJwt(token);
+      if(!isAuth.verified) reject({"errorCode":403, "error":"Forbidden"});
+      if(isAuth.verified) {
+        pool.query(
+          `SELECT
+            b.blueprint_id,
+            b.blueprint_fk_facility_id,
+            b.blueprint_name,
+            b.blueprint_image
+          FROM blueprints as b
+          INNER JOIN facilitypermissions AS fp ON fp.fp_fk_facility=b.blueprint_fk_facility_id
+          WHERE fp.fp_fk_user=$1
+          AND b.blueprint_fk_facility_id=$2;
+          `,
+          [ isAuth.result.id, facilityId ],
+          (err, results) => {
+            if (err) reject({"errorCode":500, "error":"Internal server error"});
+            const blueprints = results.rows.map(blueprint => ({
+              "id":blueprint.blueprint_id,
+              "name":blueprint.blueprint_name,
+              "code":blueprint.blueprint_code,
+              "image":images_model.getImage("blueprint", blueprint.blueprint_image)
+            }));
+           resolve(blueprints);
           }
-          resolve(blueprintsArray);
-        }
-      })
-    }
-  })
-
-}
+        );
+      };
+    };
+  });
+};
 
 function getUserPermissions(userId) {
   
@@ -175,7 +206,8 @@ function getUserPermissions(userId) {
 };
 
 module.exports = {
-  getOffices,
+  getUserInfo,
+  getOrganizations,
   getFacilitiesByUser,
   getBlueprintsByUser,
   getUserPermissions
