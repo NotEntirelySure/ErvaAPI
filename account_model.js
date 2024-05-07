@@ -99,65 +99,78 @@ function login(loginValues) {
 
 function register(registrationValues) {
   return new Promise(async(resolve, reject) => {
-    const isVerified = speakeasy.totp.verify({
-      secret: registrationValues.otpsecret,
-      encoding: 'base32',
-      token:parseInt(registrationValues.otp)
-    });
-    if (!isVerified) {resolve({"code":601,"message":"invalid OTP code"})}
-    if (isVerified) {
-      const userExists = await pool.query(`SELECT(EXISTS(SELECT FROM users WHERE users_email=$1))`,[registrationValues.email.toLowerCase()]);
-      if (userExists.rows[0].exists) {
-        email_model.sendAccountExistsEmail(registrationValues.email.toLowerCase())
-        resolve({"code":200})
-      }
-      if (!userExists.rows[0].exists) {
-        const userValues = [
-          registrationValues.fname,
-          registrationValues.lname,
-          registrationValues.email.toLowerCase(),
-          registrationValues.password,
-          registrationValues.otpsecret
-        ];
-        const userQuery = `
-          INSERT INTO users (
-            users_first_name,
-            users_last_name,
-            users_email,
-            users_password,
-            users_created_at,
-            users_fk_role,
-            users_fk_type,
-            users_otp_key,
-            users_enabled,
-            users_verified
-          )
-          VALUES (
-            $1,
-            $2,
-            $3,
-            crypt($4, gen_salt('bf')),
-            (SELECT NOW()),
-            2,
-            4,
-            encrypt($5, '${process.env.DATABASE_PASSWORD_ENCRYPTION_KEY}', 'aes'),
-            'true',
-            'false'
-          );`
-        pool.query(userQuery, userValues, (error) => {
-          if (error) reject(error)
-          email_model.sendVerifyEmail(registrationValues.email.toLowerCase())
-          resolve({"code":200})
-        })
+    try {
+      const isVerified = speakeasy.totp.verify({
+        secret: registrationValues.otpsecret,
+        encoding: 'base32',
+        token:registrationValues.otp
+      });
+      if (!isVerified) resolve({
+        success:false,
+        code:601,
+        message:"invalid OTP code"
+      });
+      if (isVerified) {
+        const userExists = await pool.query(`SELECT(EXISTS(SELECT FROM users WHERE users_email=$1))`,[registrationValues.email.toLowerCase()]);
+        if (userExists.rows[0].exists) {
+          email_model.sendAccountExistsEmail(registrationValues.email.toLowerCase());
+          resolve({success:true});
+        }
+        if (!userExists.rows[0].exists) {
+          const userValues = [
+            registrationValues.fname,
+            registrationValues.lname,
+            registrationValues.email.toLowerCase(),
+            registrationValues.password,
+            registrationValues.otpsecret
+          ];
+          const userQuery = `
+            INSERT INTO users (
+              users_first_name,
+              users_last_name,
+              users_email,
+              users_password,
+              users_created_at,
+              users_fk_role,
+              users_fk_type,
+              users_otp_key,
+              users_enabled,
+              users_verified
+            )
+            VALUES (
+              $1,
+              $2,
+              $3,
+              crypt($4, gen_salt('bf')),
+              (SELECT NOW()),
+              2,
+              4,
+              encrypt($5, '${process.env.DATABASE_PASSWORD_ENCRYPTION_KEY}', 'aes'),
+              'true',
+              'false'
+            );`
+          pool.query(userQuery, userValues, (error) => {
+            if (error) reject(error)
+            email_model.sendVerifyEmail(registrationValues.email.toLowerCase())
+            resolve({success:true})
+          })
+        }
       }
     }
-  })
-}
+    catch(err) {
+      console.log(err);
+      resolve({
+        success:false,
+        code:500,
+        message:"an internal server error occured while attempting to register your account."
+      });
+    };
+  });
+};
 
 function generateQr() {
   const secret = speakeasy.generateSecret();
-  console.log(secret);
-  const otpAuthUrl = speakeasy.otpauthURL({ secret: secret.ascii, label: 'E.R.V.A.', algorithm: 'sha512' });
+  const otpAuthUrl = speakeasy.otpauthURL({ secret: secret.ascii, label: 'E.R.V.A.'});
   return new Promise((resolve, reject) => {
     QRCode.toDataURL(otpAuthUrl, (err, data_url) => {
       if(err) reject(err)
@@ -171,28 +184,57 @@ function generateQr() {
 
 function verifyAccount(token) {
   return new Promise(async(resolve,reject) => {
-    if (!token) reject({"code":500,"error":"No verification token presented to the server."});
-    if (token) {
-      const tokenIsValid = await verifyJwt_model.verifyJwtInternal(token);
-      if (!tokenIsValid.verified) {
-        switch (tokenIsValid.error) {
-          case "jwt expired":
-            reject({"code":403,"error":"Verification token has expired."})
-            break;
-          case "jwt malformed":
-            reject({"code":498,"error":"The server was presented with an invalid token"});
-            break;
-          default: reject({"code":498,"error":"An error occured while attempting to verify the account."})
-        } 
-      }
-      if (tokenIsValid.verified && tokenIsValid.result.type !== "emailVerification") reject({"code":498,"error":"The server was presented with an invalid token"})
-      if (tokenIsValid.verified && tokenIsValid.result.type === "emailVerification"){
-        pool.query(`UPDATE users SET users_verified='true' WHERE users_email=$1`,[tokenIsValid.result.email], (error) => {
-          if (error) reject({"code":500,"message":"an error occured verifying account."})
-          resolve({"code":200});
+    try {
+      if (!token) reject({"code":500,"error":"No verification token presented to the server."});
+      if (token) {
+        const tokenIsValid = await verifyJwt_model._verifyJwt(token);
+        if (!tokenIsValid.verified) {
+          switch (tokenIsValid.error) {
+            case "jwt expired":
+              reject({
+                success:false,
+                code:403,
+                error:"Verification token has expired."
+              });
+              break;
+            case "jwt malformed":
+              reject({
+                success:false,
+                code:498,
+                error:"The server was presented with an invalid token"
+              });
+              break;
+            default: reject({
+              success:false,
+              code:498,
+              error:"An error occured while attempting to verify the account."
+            });
+          };
+        };
+        if (tokenIsValid.verified && tokenIsValid.result.type !== "emailVerification") reject({
+          success:false,
+          code:498,
+          error:"The server was presented with an invalid token"
         });
-      };
+        if (tokenIsValid.verified && tokenIsValid.result.type === "emailVerification"){
+          pool.query(`UPDATE users SET users_verified='true' WHERE users_email=$1`,[tokenIsValid.result.email], (error) => {
+            if (error) reject({
+              success:false,
+              code:500,
+              message:"An error occured verifying account."})
+            resolve({success:true});
+          });
+        };
+      }
     }
+    catch (err) {
+      console.log(err);
+      resolve({
+        succes:false,
+        code:500,
+        error:"An internal server error occured while attempting to verify your account."
+      });
+    };
   });
 };
 
