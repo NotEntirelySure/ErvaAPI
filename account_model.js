@@ -105,16 +105,27 @@ function register(registrationValues) {
         encoding: 'base32',
         token:registrationValues.otp
       });
-      if (!isVerified) resolve({success:false,"message":"Invalid one-time password. Check the number and try again. If the problem persists, contact your system administrator"});
+      if (!isVerified) resolve({
+        success:false,
+        code:601,
+        message:"invalid OTP code"
+      });
       if (isVerified) {
         const userExists = await pool.query(`SELECT(EXISTS(SELECT FROM users WHERE users_email=$1))`,[registrationValues.email.toLowerCase()]);
         if (userExists.rows[0].exists) {
           email_model.sendAccountExistsEmail(registrationValues.email.toLowerCase());
           resolve({success:true});
-        };
+        }
         if (!userExists.rows[0].exists) {
-          pool.query(
-            `INSERT INTO users (
+          const userValues = [
+            registrationValues.fname,
+            registrationValues.lname,
+            registrationValues.email.toLowerCase(),
+            registrationValues.password,
+            registrationValues.otpsecret
+          ];
+          const userQuery = `
+            INSERT INTO users (
               users_first_name,
               users_last_name,
               users_email,
@@ -137,35 +148,29 @@ function register(registrationValues) {
               encrypt($5, '${process.env.DATABASE_PASSWORD_ENCRYPTION_KEY}', 'aes'),
               'true',
               'false'
-            );`,
-            [
-              registrationValues.fname,
-              registrationValues.lname,
-              registrationValues.email.toLowerCase(),
-              registrationValues.password,
-              registrationValues.otpsecret
-            ],
-            error => {
-              if (error) resolve({
-                success:false,
-                message:"An error occured while attempting to register your account."
-              });
-              email_model.sendVerifyEmail(registrationValues.email.toLowerCase())
-              resolve({success:true});
-          });
-        };
-      };
+            );`
+          pool.query(userQuery, userValues, (error) => {
+            if (error) reject(error)
+            email_model.sendVerifyEmail(registrationValues.email.toLowerCase())
+            resolve({success:true})
+          })
+        }
+      }
     }
-    catch {
+    catch(err) {
+      console.log(err);
       resolve({
         success:false,
-        message:"An unexpected error occured while attempting to register your account."
+        code:500,
+        message:"an internal server error occured while attempting to register your account."
       });
     };
   });
 };
 
 function generateQr() {
+  const secret = speakeasy.generateSecret();
+  const otpAuthUrl = speakeasy.otpauthURL({ secret: secret.ascii, label: 'E.R.V.A.'});
   return new Promise((resolve, reject) => {
     const secret = speakeasy.generateSecret();
     QRCode.toDataURL(
@@ -184,25 +189,54 @@ function generateQr() {
 function verifyAccount(token) {
   return new Promise(async(resolve,reject) => {
     try {
-      const isVerified = await verifyJwt_model._verifyJwt(token);
-      if (!isVerified.verified) resolve(isVerified);
-      if (isVerified.verified) {
-        if (isVerified.result.type !== "emailVerification") resolve({success:false, error:"The server was presented with an invalid token"});
-        if (isVerified.result.type === "emailVerification") {
-          pool.query(
-            "UPDATE users SET users_verified='true' WHERE users_email=$1;",
-            [isVerified.result.email],
-            error => {
-            if (error) resolve({success:false, error:"An error occured while attempting to verify your account."})
+      if (!token) reject({"code":500,"error":"No verification token presented to the server."});
+      if (token) {
+        const tokenIsValid = await verifyJwt_model._verifyJwt(token);
+        if (!tokenIsValid.verified) {
+          switch (tokenIsValid.error) {
+            case "jwt expired":
+              reject({
+                success:false,
+                code:403,
+                error:"Verification token has expired."
+              });
+              break;
+            case "jwt malformed":
+              reject({
+                success:false,
+                code:498,
+                error:"The server was presented with an invalid token"
+              });
+              break;
+            default: reject({
+              success:false,
+              code:498,
+              error:"An error occured while attempting to verify the account."
+            });
+          };
+        };
+        if (tokenIsValid.verified && tokenIsValid.result.type !== "emailVerification") reject({
+          success:false,
+          code:498,
+          error:"The server was presented with an invalid token"
+        });
+        if (tokenIsValid.verified && tokenIsValid.result.type === "emailVerification"){
+          pool.query(`UPDATE users SET users_verified='true' WHERE users_email=$1`,[tokenIsValid.result.email], (error) => {
+            if (error) reject({
+              success:false,
+              code:500,
+              message:"An error occured verifying account."})
             resolve({success:true});
           });
         };
-      };
+      }
     }
-    catch {
+    catch (err) {
+      console.log(err);
       resolve({
-        success:false,
-        error:"An unexpected error occured while attempting to verify your account."
+        succes:false,
+        code:500,
+        error:"An internal server error occured while attempting to verify your account."
       });
     };
   });
