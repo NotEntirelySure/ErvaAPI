@@ -24,8 +24,8 @@ function login(loginValues) {
       const secretRequest = await pool.query(secretQuery,[loginValues.username.toLowerCase()]);
       if (secretRequest.rows.length === 0) resolve({
         success:false,
-        errorCode:401,
-        errorMessage:"Your username, password, or one-time password is incorrect."})
+        errorCode:601,
+        errorMessage:"Your one-time password is incorrect."})
       if (secretRequest.rows.length > 0) {
         const isVerified = speakeasy.totp.verify({
           secret:secretRequest.rows[0].convert_from,
@@ -51,12 +51,12 @@ function login(loginValues) {
             if (userInfo.rowCount > 0) {
               if (!userInfo.rows[0].users_verified) resolve({
                 success:false,
-                errorCode:601,
+                errorCode:602,
                 errorMessage:"account not verified"
               });
               if (!userInfo.rows[0].users_enabled) resolve({
                 success:false,
-                errorCode:402,
+                errorCode:602,
                 errorMessage:"account disabled"
               });
               if (userInfo.rows[0].users_enabled && userInfo.rows[0].users_verified) {
@@ -70,8 +70,8 @@ function login(loginValues) {
             };
             if (userInfo.rowCount === 0) resolve({
               success:false,
-              errorCode:401,
-              errorMessage:"Your username, password, or one-time password is incorrect."});
+              errorCode:603,
+              errorMessage:"The username or password is incorrect."});
           }
           catch (err) {
             resolve({
@@ -83,8 +83,8 @@ function login(loginValues) {
         }
         if (!isVerified) resolve({
           success:false,
-          errorCode:401,
-          errorMessage:"Your username, password, or one-time password is incorrect."})
+          errorCode:601,
+          errorMessage:"Your one-time password is incorrect."})
       };
     }
     catch (err) {
@@ -99,100 +99,112 @@ function login(loginValues) {
 
 function register(registrationValues) {
   return new Promise(async(resolve, reject) => {
-    const isVerified = speakeasy.totp.verify({
-      secret: registrationValues.otpsecret,
-      encoding: 'base32',
-      token:parseInt(registrationValues.otp)
-    });
-    if (!isVerified) {resolve({"code":601,"message":"invalid OTP code"})}
-    if (isVerified) {
-      const userExists = await pool.query(`SELECT(EXISTS(SELECT FROM users WHERE users_email=$1))`,[registrationValues.email.toLowerCase()]);
-      if (userExists.rows[0].exists) {
-        email_model.sendAccountExistsEmail(registrationValues.email.toLowerCase())
-        resolve({"code":200})
-      }
-      if (!userExists.rows[0].exists) {
-        const userValues = [
-          registrationValues.fname,
-          registrationValues.lname,
-          registrationValues.email.toLowerCase(),
-          registrationValues.password,
-          registrationValues.otpsecret
-        ];
-        const userQuery = `
-          INSERT INTO users (
-            users_first_name,
-            users_last_name,
-            users_email,
-            users_password,
-            users_created_at,
-            users_fk_role,
-            users_fk_type,
-            users_otp_key,
-            users_enabled,
-            users_verified
-          )
-          VALUES (
-            $1,
-            $2,
-            $3,
-            crypt($4, gen_salt('bf')),
-            (SELECT NOW()),
-            2,
-            4,
-            encrypt($5, '${process.env.DATABASE_PASSWORD_ENCRYPTION_KEY}', 'aes'),
-            'true',
-            'false'
-          );`
-        pool.query(userQuery, userValues, (error) => {
-          if (error) reject(error)
-          email_model.sendVerifyEmail(registrationValues.email.toLowerCase())
-          resolve({"code":200})
-        })
-      }
+    try {
+      const isVerified = speakeasy.totp.verify({
+        secret: registrationValues.otpsecret,
+        encoding: 'base32',
+        token:registrationValues.otp
+      });
+      if (!isVerified) resolve({success:false,"message":"Invalid one-time password. Check the number and try again. If the problem persists, contact your system administrator"});
+      if (isVerified) {
+        const userExists = await pool.query(`SELECT(EXISTS(SELECT FROM users WHERE users_email=$1))`,[registrationValues.email.toLowerCase()]);
+        if (userExists.rows[0].exists) {
+          email_model.sendAccountExistsEmail(registrationValues.email.toLowerCase());
+          resolve({success:true});
+        };
+        if (!userExists.rows[0].exists) {
+          pool.query(
+            `INSERT INTO users (
+              users_first_name,
+              users_last_name,
+              users_email,
+              users_password,
+              users_created_at,
+              users_fk_role,
+              users_fk_type,
+              users_otp_key,
+              users_enabled,
+              users_verified
+            )
+            VALUES (
+              $1,
+              $2,
+              $3,
+              crypt($4, gen_salt('bf')),
+              (SELECT NOW()),
+              2,
+              4,
+              encrypt($5, '${process.env.DATABASE_PASSWORD_ENCRYPTION_KEY}', 'aes'),
+              'true',
+              'false'
+            );`,
+            [
+              registrationValues.fname,
+              registrationValues.lname,
+              registrationValues.email.toLowerCase(),
+              registrationValues.password,
+              registrationValues.otpsecret
+            ],
+            error => {
+              if (error) resolve({
+                success:false,
+                message:"An error occured while attempting to register your account."
+              });
+              email_model.sendVerifyEmail(registrationValues.email.toLowerCase())
+              resolve({success:true});
+          });
+        };
+      };
     }
-  })
-}
+    catch {
+      resolve({
+        success:false,
+        message:"An unexpected error occured while attempting to register your account."
+      });
+    };
+  });
+};
 
 function generateQr() {
-  const secret = speakeasy.generateSecret();
-  console.log(secret);
-  const otpAuthUrl = speakeasy.otpauthURL({ secret: secret.ascii, label: 'E.R.V.A.', algorithm: 'sha512' });
   return new Promise((resolve, reject) => {
-    QRCode.toDataURL(otpAuthUrl, (err, data_url) => {
-      if(err) reject(err)
-      resolve({
-        qrcode:data_url,
-        secret:secret
-      });
-    });
+    const secret = speakeasy.generateSecret();
+    QRCode.toDataURL(
+      speakeasy.otpauthURL({ secret: secret.ascii, label: 'E.R.V.A.'}),
+      (err, data_url) => {
+        if(err) reject(err);
+        resolve({
+          qrcode:data_url,
+          secret:secret.base32
+        });
+      }
+    );
   });
 };
 
 function verifyAccount(token) {
   return new Promise(async(resolve,reject) => {
-    if (!token) reject({"code":500,"error":"No verification token presented to the server."});
-    if (token) {
-      const tokenIsValid = await verifyJwt_model.verifyJwtInternal(token);
-      if (!tokenIsValid.verified) {
-        switch (tokenIsValid.error) {
-          case "jwt expired":
-            reject({"code":403,"error":"Verification token has expired."})
-            break;
-          case "jwt malformed":
-            reject({"code":498,"error":"The server was presented with an invalid token"});
-            break;
-          default: reject({"code":498,"error":"An error occured while attempting to verify the account."})
-        } 
-      }
-      if (tokenIsValid.verified && tokenIsValid.result.type !== "emailVerification") reject({"code":498,"error":"The server was presented with an invalid token"})
-      if (tokenIsValid.verified && tokenIsValid.result.type === "emailVerification"){
-        pool.query(`UPDATE users SET users_verified='true' WHERE users_email=$1`,[tokenIsValid.result.email], (error) => {
-          if (error) reject({"code":500,"message":"an error occured verifying account."})
-          resolve({"code":200});
-        });
+    try {
+      const isVerified = await verifyJwt_model._verifyJwt(token);
+      if (!isVerified.verified) resolve(isVerified);
+      if (isVerified.verified) {
+        if (isVerified.result.type !== "emailVerification") resolve({success:false, error:"The server was presented with an invalid token"});
+        if (isVerified.result.type === "emailVerification") {
+          pool.query(
+            "UPDATE users SET users_verified='true' WHERE users_email=$1;",
+            [isVerified.result.email],
+            error => {
+            if (error) resolve({success:false, error:"An error occured while attempting to verify your account."})
+            resolve({success:true});
+          });
+        };
       };
     }
+    catch {
+      resolve({
+        success:false,
+        error:"An unexpected error occured while attempting to verify your account."
+      });
+    };
   });
 };
 

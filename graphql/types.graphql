@@ -52,3 +52,20 @@ type Image {
   data:String
   name:String
 }
+
+type ComponentData {
+  components:[MapComponent]
+  svgData:[Image]
+}
+
+type MapComponent {
+  id:ID
+  category:String
+  color:String
+  type:String
+  name:String
+  icon:String
+  lat:Float
+  long:Float
+  floor:Int
+}

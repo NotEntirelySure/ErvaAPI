@@ -4,4 +4,5 @@ type Query {
   getOrganizations(jwt:String):[Organization]
   getFacilities(jwt:String, organizationId:Int):[Facility]
   getBlueprints(jwt:String, facilityId:Int):[Blueprint]
+  getMapComponents(jwt:String, facilityId:Int):ComponentData
 }

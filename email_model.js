@@ -44,8 +44,8 @@ const sendAccountExistsEmail = async(toAddress) => {
     to: toAddress,
     html: `
       <div>
-        <p>You are receiving this email because someone attempted to create an account with the email address of ${toAddress}, but an account is already registered with that email address</p>
-        <p>If you did not initiate this account registration action, please contact Erva Systems customer service at account-services@ervasystems.com</p>
+        <p>You are receiving this email because someone attempted to create an account with the email address of ${toAddress}, but an account is already registered with that email address.</p>
+        <p>If you did not initiate this account registration action, please contact E.R.V.A. Systems customer service at account-services@ervasystems.com</p>
         <br/>
         <p>If you did initiate this action and forgot your account password, click <a href="${process.env.EMAIL_BASE_URL}/forgotpassword">here</a> to reset your password.
       </div>

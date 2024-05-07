@@ -22,7 +22,19 @@ function verifyJwt(token) {
 function _verifyJwt(token) {
   return new Promise((resolve) => {
     jwt.verify(token, process.env.JWT_SECRET_KEY, (err, result) => {
-      if(err) resolve({verified:false})
+      if(err) {
+        let message;
+        switch (err.name) {
+          case "TokenExpiredError":
+            message = "Your account verification token has expired. Please contact the system administrator to resend the acconut verification email.";
+            break;
+          case "JsonWebTokenError":
+            message = "The server was presented with an invalid account verification token.";
+            break;
+          default: message = "An error occured while attempting to verify your account.";
+        };
+        resolve({verified:false, error:message})
+      }
       if(result) resolve({verified:true, "result":result})
     });
   });

@@ -49,6 +49,10 @@ const resolvers = {
   getBlueprints: async ({ jwt, facilityId }) => {
     const blueprints = await database_model.getBlueprintsByUser(jwt, facilityId);
     return blueprints;
+  },
+  getMapComponents: async ({ jwt, facilityId }) => {
+    const components = await database_model.getMapComponents(jwt, facilityId);
+    return components;
   }
 };
 

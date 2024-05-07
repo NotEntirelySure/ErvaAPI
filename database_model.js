@@ -205,10 +205,40 @@ function getUserPermissions(userId) {
   });
 };
 
+function getMapComponents (token, facilityId) {
+  return new Promise(async (resolve, reject) => {
+    if(!token) reject({"errorCode":401, "error":"No JWT provided"});
+    if (token) {
+      const isAuth = await _verifyJwt(token);
+      if(!isAuth.verified) reject({"errorCode":403, "error":"Forbidden"});
+      if(isAuth.verified) {
+        pool.query(
+          'SELECT * FROM get_map_components($1,$2)',
+          [ isAuth.result.id, facilityId ],
+          (error, results) => {
+            if (error) reject({success:false, message:error.message});
+            const icons = new Set(results.rows.map(component => component.icon));
+            const svgData = []
+            icons.forEach(icon => {
+              const data = images_model.getImage("svg", icon);
+              svgData.push(data);
+            });
+            resolve({
+              components:results.rows,
+              svgData:svgData
+            });
+          }
+        );
+      };
+    };
+  });
+};
+
 module.exports = {
   getUserInfo,
   getOrganizations,
   getFacilitiesByUser,
   getBlueprintsByUser,
-  getUserPermissions
-}
+  getUserPermissions,
+  getMapComponents
+};

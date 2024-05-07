@@ -10,6 +10,9 @@ function getImage(type, name) {
       case 'facility':
         directory = 'facilities';
         break;
+      case 'svg':
+        directory = 'component_icons';
+        break;
     };
     if (!directory) resolve ({
       success:false,
@@ -53,6 +56,5 @@ function getImage(type, name) {
     };
   });
 };
-
 
 module.exports = { getImage };
