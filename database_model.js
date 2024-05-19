@@ -1,4 +1,5 @@
 //allows access to .env file for environment variable declaration
+//require('dotenv').config({path:C:/ErvaAPI/API_Prod_Build/.env'});
 require('dotenv').config();
 const images_model = require("./images_model");
 const jwt = require("jsonwebtoken");
