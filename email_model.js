@@ -1,3 +1,4 @@
+//require('dotenv').config({path:C:/ErvaAPI/API_Prod_Build/.env'});
 require("dotenv").config();
 const nodemailer = require("nodemailer");
 const { GoogleAuth } = require('google-auth-library');
