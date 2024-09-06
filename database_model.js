@@ -206,9 +206,44 @@ function getUserPermissions(userId) {
   });
 };
 
+function getComponents (token) {
+  return new Promise(async (resolve, reject) => {
+    if (!token) reject({"errorCode":401, "error":"No JWT provided"});
+    if (token) {
+      const isAuth = await _verifyJwt(token);
+      if(!isAuth.verified) reject({"errorCode":403, "error":"Forbidden"});
+      if(isAuth.verified) {
+        pool.query(
+          `SELECT 
+            mc.component_id,
+            cc.category_name,
+            mc.component_type,
+            mc.component_name,
+            mc.component_icon, 
+            mc.component_color
+          FROM map_components AS mc 
+          JOIN component_categories AS cc ON mc.component_category=cc.category_id;`,
+          (error, results) => {
+            if (error) reject(error.message);
+            const components = results.rows.map(component => ({
+              componentId: component.component_id,
+              categoryName: component.category_name, 
+              componentType: component.component_type,
+              componentName: component.component_name,
+              componentIcon: component.component_icon,
+              componentColor: component.component_color
+            }));
+            resolve(components);
+          }
+        );
+      };
+    };
+  });
+};
+
 function getMapComponents (token, facilityId) {
   return new Promise(async (resolve, reject) => {
-    if(!token) reject({"errorCode":401, "error":"No JWT provided"});
+    if (!token) reject({"errorCode":401, "error":"No JWT provided"});
     if (token) {
       const isAuth = await _verifyJwt(token);
       if(!isAuth.verified) reject({"errorCode":403, "error":"Forbidden"});
@@ -235,11 +270,46 @@ function getMapComponents (token, facilityId) {
   });
 };
 
+function addMapComponent (token, component) {
+  return new Promise(async (resolve, reject) => {
+    if (!token) reject({"errorCode":401, "error":"No JWT provided"});
+    if (token) {
+      const isAuth = await _verifyJwt(token);
+      if(!isAuth.verified) reject({"errorCode":403, "error":"Forbidden"});
+      if(isAuth.verified) {
+        pool.query(
+          `INSERT INTO component_locations (
+            location_component_id,
+            location_facility_id,
+            location_lat,
+            location_long,
+            location_floor
+            ) 
+          VALUES ($1,$2,$3,$4,$5);`,
+          [ 
+            component.componentId,
+            component.facilityId,
+            component.lat,
+            component.long,
+            component.floor 
+          ],
+          (error, results) => {
+            if (error) reject({success:false, message:error.message});
+            resolve({success:true});
+          }
+        );
+      };
+    };
+  });
+};
+
 module.exports = {
   getUserInfo,
   getOrganizations,
   getFacilitiesByUser,
   getBlueprintsByUser,
   getUserPermissions,
-  getMapComponents
+  getComponents,
+  getMapComponents,
+  addMapComponent
 };

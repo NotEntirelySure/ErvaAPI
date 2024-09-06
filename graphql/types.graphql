@@ -58,6 +58,15 @@ type ComponentData {
   svgData:[Image]
 }
 
+type Component {
+  componentId: Int
+  categoryName: String
+  componentType: String
+  componentName: String
+  componentIcon: String
+  componentColor: String
+}
+
 type MapComponent {
   id:ID
   category:String
@@ -68,4 +77,17 @@ type MapComponent {
   lat:Float
   long:Float
   floor:Int
+}
+
+input NewMapComponent {
+  componentId:Int
+  facilityId:Int
+  lat:Float
+  long:Float
+  floor:Int
+}
+
+type ModifyComponentResponse {
+  success: Boolean
+  message:String
 }
