@@ -219,21 +219,34 @@ function getComponents (token) {
             cc.category_name,
             mc.component_type,
             mc.component_name,
-            mc.component_icon, 
+            mc.component_icon,
             mc.component_color
           FROM map_components AS mc 
           JOIN component_categories AS cc ON mc.component_category=cc.category_id;`,
           (error, results) => {
             if (error) reject(error.message);
+            const icons = new Set(results.rows.map(component => component.component_icon));
+            const svgData = []
+            icons.forEach(icon => {
+              const data = images_model.getImage("svg", icon);
+              svgData.push(data);
+            });
             const components = results.rows.map(component => ({
               componentId: component.component_id,
               categoryName: component.category_name, 
               componentType: component.component_type,
               componentName: component.component_name,
               componentIcon: component.component_icon,
-              componentColor: component.component_color
+              componentColor: component.component_color,
             }));
-            resolve(components);
+            console.log({
+              components:components,
+              svgData:svgData
+            })
+            resolve({
+              components:components,
+              svgData:svgData
+            });
           }
         );
       };
@@ -253,16 +266,7 @@ function getMapComponents (token, facilityId) {
           [ isAuth.result.id, facilityId ],
           (error, results) => {
             if (error) reject({success:false, message:error.message});
-            const icons = new Set(results.rows.map(component => component.icon));
-            const svgData = []
-            icons.forEach(icon => {
-              const data = images_model.getImage("svg", icon);
-              svgData.push(data);
-            });
-            resolve({
-              components:results.rows,
-              svgData:svgData
-            });
+            resolve(results.rows);
           }
         );
       };
@@ -303,6 +307,25 @@ function addMapComponent (token, component) {
   });
 };
 
+function deleteMapComponent (token, componentId) {
+  return new Promise(async (resolve, reject) => {
+    if (!token) reject({"errorCode":401, "error":"No JWT provided"});
+    if (token) {
+      const isAuth = await _verifyJwt(token);
+      if(!isAuth.verified) reject({"errorCode":403, "error":"Forbidden"});
+      if(isAuth.verified) {
+        pool.query(
+          'DELETE FROM component_locations WHERE location_id=$1',
+          [ componentId ],
+          (error, results) => {
+            if (error) reject({success:false, message:error.message});
+            resolve({success:true});
+          }
+        );
+      };
+    };
+  });
+};
 module.exports = {
   getUserInfo,
   getOrganizations,
@@ -311,5 +334,6 @@ module.exports = {
   getUserPermissions,
   getComponents,
   getMapComponents,
-  addMapComponent
+  addMapComponent,
+  deleteMapComponent
 };

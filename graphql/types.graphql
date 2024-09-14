@@ -54,7 +54,7 @@ type Image {
 }
 
 type ComponentData {
-  components:[MapComponent]
+  components:[Component]
   svgData:[Image]
 }
 
@@ -89,5 +89,10 @@ input NewMapComponent {
 
 type ModifyComponentResponse {
   success: Boolean
+  message:String
+}
+
+type OperationResult {
+  success:Boolean
   message:String
 }

@@ -63,6 +63,10 @@ const resolvers = {
   addMapComponent: async ({ jwt, component }) => {
     const addComponent = await database_model.addMapComponent(jwt, component);
     return addComponent;
+  },
+  deleteMapComponent: async ({ jwt, componentId }) => {
+    const deleteComponent = await database_model.deleteMapComponent(jwt, componentId);
+    return deleteComponent;
   }
 };
 

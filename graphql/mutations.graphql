@@ -1,3 +1,4 @@
 type Mutation {
   addMapComponent(jwt:String!, component:NewMapComponent!): ModifyComponentResponse
+  deleteMapComponent(jwt:String!, componentId:Int!): OperationResult
 }
